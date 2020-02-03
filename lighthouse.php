@@ -1,5 +1,7 @@
 <?php
 
+// funciona mesmo
+
 header('Content-Type: application/json');
 
 // include('craw.php');
