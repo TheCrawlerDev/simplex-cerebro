@@ -4,23 +4,31 @@ class CrawlerController{
 	
 	// script @ok
 	public function alexa($model,$request,$body){
+		date_default_timezone_set('America/Sao_Paulo');
 		$model_generic = new Model();
 		$links = $model->alexa();
 		foreach($links as $link){
 			$valid_date = $model->valid_date_alexa($link['id']);
 			var_dump($valid_date);
 			if(is_null($valid_date)){
+				$api = json_decode(file_get_contents('http://localhost/simplex/sistema/api/alexa.php?page='.$link['url']),true);
+				$i = 0;
+				while( count($api['rankData'])==0 || intval($api['time_on_site'])==0 ) {
+					sleep(3);
+					$i++;
+					if($i>20) break;
+					$api = json_decode(file_get_contents('http://localhost/simplex/sistema/api/alexa.php?page='.$link['url']),true);
+				}
 				try{
-					$api = json_decode(file_get_contents('http://hibots.com.br/simplex/alexa.php?page='.$link['url']),true);
 					$dados['date'] = stringify_sql(date('Y-m-d H:00:00'));
 					$dados['url_id'] = $link['id'];
 					$dados['url'] = stringify_sql($link['url']);
-					$dados['global_rank'] = end($api['rankData']['3mrank']);
-					$dados['country_rank'] = str_replace(',', '', $api['country_rank']);
-					$dados['bounce_rate'] = $api['bounce_rating'];
-					$dados['page_p_visit'] = $api['visitorPercentage'][0]['pageviews_per_user'];
-					$dados['time_on_site'] = $api['time_on_site'];
-					$dados['search_visits'] = $api['visitorPercentage'][0]['visitors_percent'];
+					$dados['global_rank'] = intval(end($api['rankData']['3mrank']));
+					$dados['country_rank'] = intval(str_replace(',', '', $api['country_rank']));
+					$dados['bounce_rate'] = doubleval($api['bounce_rating']);
+					$dados['page_p_visit'] = doubleval($api['visitorPercentage'][0]['pageviews_per_user']);
+					$dados['time_on_site'] = stringify_sql($api['time_on_site']);
+					$dados['search_visits'] = doubleval($api['comparison_metrics']);
 					$dados['how_fast'] = 0;
 					print_r($dados);
 					$result = $model_generic->insert('alexa',$dados);
@@ -35,6 +43,7 @@ class CrawlerController{
 
 	// script @ok
 	public function lighthouse($model,$request,$body){
+		date_default_timezone_set('America/Sao_Paulo');
 		$model_generic = new Model();
 		// audit_type pode ser null
 		// 'Performance','score'
@@ -46,8 +55,7 @@ class CrawlerController{
 			if(is_null($valid_date)){
 				$url = $link['url'];
 				echo "Coleta dados Lighthouse para o site $url </br></br>";
-				$api = json_decode(file_get_contents('http://simplexteste.kinghost.net/lighthouse.php?page='.$link['url']),true);
-				// ['first_contentful_paint','speed_index','interactive','first-cpu-idle','first_meaningful_paint','first_interactive','consistently_interactive','speed_index_metric','estimated_input_latency','link_blocking_first_paint','script_blocking_first_paint','uses_responsive_images','offscreen_images','unminified_css','unminified_javascript','unused_css_rules','uses_optimized_images','uses_webp_images','uses_request_compression','time_to_first_byte','redirects','total_byte_weight','uses_long_cache_ttl','dom_size','critical_request_chains','user_timings','bootup_time','screenshot_thumbnails','mainthread_work_breakdown','uses_rel_preload','network_requests','font_display'];
+				$api = json_decode(file_get_contents('http://localhost/simplex/sistema/api/lighthouse.php?page='.$link['url']),true);
 				$perf_audits = ['first-contentful-paint',
                'first-meaningful-paint',
                'speed-index',
@@ -96,15 +104,14 @@ class CrawlerController{
 						}
 				}
 				foreach($api['lhr']['audits'] as $audit){
-					if(isset($audit['score'])){
 						try{
 							if(audit_type($audit['id'])<>null){
 								$dados['`datetime`'] = stringify_sql(date('Y-m-d H:00:00'));
 								$dados['`url_id`'] = $link['id'];
 								$dados['`url`'] = stringify_sql($link['url']);
 								$dados['`audit_type`'] = stringify_sql(audit_type($audit['id']));
-								$dados['`audit`'] = stringify_sql($audit['title']);
-								$dados['`value`'] = $audit['score'];
+								$dados['`audit`'] = stringify_sql($audit['id']);
+								$dados['`value`'] = search_audit($audit);
 								print_r($dados);
 								$result = $model_generic->insert('lighthouse',$dados);
 								$url = $link['url'];
@@ -112,8 +119,7 @@ class CrawlerController{
 							}
 						}catch(Exception $e){
 							print_r($e);
-						}	
-					}
+						}
 				}
 				$performance = array();
 				$performance['`datetime`'] = stringify_sql(date('Y-m-d H:00:00'));
@@ -145,6 +151,7 @@ class CrawlerController{
 
 	// script @ok
 	public function pagespeed($model,$request,$body){
+		date_default_timezone_set('America/Sao_Paulo');
 		$model_generic = new Model();
 		$links = $model->pagespeed();
 		$agents = [
@@ -182,48 +189,71 @@ class CrawlerController{
 	}
 
 	// script @ok
-	public function observatory($model,$request,$body){
+	public function scan_observatory($model,$request,$body){
 		$model_generic = new Model();
-		$links = $model->observatory();
+		$links = $model->observatory(500);
 		foreach($links as $link){
-			$valid_date = $model->valid_date_observatory($links[0]['id']);
-			// if(is_null($valid_date)){
-				$api = json_decode(file_get_contents('https://hibots.com.br/simplex/observatory.php?page='.$link['url']),true);
-				// print_r($api);
-				// if(isset($api['r5'])){
-					$dados['datetime'] = stringify_sql(date('Y-m-d H:00:00'));
-					$dados['url_id'] = $link['id'];
-					$dados['url'] = stringify_sql($link['url']);
-					$dados['score'] = intval($api['r1']['score']['score_modifier']);
-					$dados['content_security_policy'] = intval($api['r5']['content-security-policy']['score_modifier']);
-					$dados['contribute'] = intval($api['r5']['contribute']['score_modifier']);
-					$dados['cookies'] = intval($api['r5']['cookies']['score-modifier']);
-					$dados['cross_origin_resource_sharing'] = intval($api['r5']['cross-origin-resource-sharing']['score_modifier']);
-					$dados['public_key_pinning'] = intval($api['r5']['public-key-pinning']['score_modifier']);
-					$dados['redirection'] = intval($api['r5']['redirection']['score_modifier']);
-					$dados['referrer_policy'] = intval($api['r5']['referrer-policy']['score_modifier']);
-					$dados['strict_transport_security'] = intval($api['r5']['strict-transport-security']['score_modifier']);
-					$dados['subresource_integrity'] = intval($api['r5']['subresource-integrity']['score_modifier']);
-					$dados['x_content_type_options'] = intval($api['r5']['x-content-type-options']['score_modifier']);
-					$dados['x_frame_options'] = intval($api['r5']['x_frame_options']['score_modifier']);
-					$dados['x_xss_protection'] = intval($api['r5']['x_xss_protection']['score_modifier']);
-					$dados['details'] = stringify_sql(json_encode($api['r5']));
-					$result = $model_generic->insert('observatory',$dados);
-					echo ($result == false ? "Link $url não atualizado!</br>" : "Link $url atualizado!</br>");	
-				// }
-			// }				
+			$link['url'] = url_path($link['url']);
+			echo "</br></br>";
+			print_r(new_scan_observatory($link['url']));
+		}
+	}
+
+	// script @ok
+	public function observatory($model,$request,$body){
+		date_default_timezone_set('America/Sao_Paulo');
+		$model_generic = new Model();
+		$links = $model->observatory(500);
+		foreach($links as $link){
+			// print_r($link);
+			$valid_date = $model->valid_date_observatory($link['id']);
+			echo $link['url'];
+			echo "</br></br>";
+			// var_dump($valid_date);
+			if(is_null($valid_date)){
+				try{
+					$api = json_decode(file_get_contents('http://localhost/simplex/sistema/api/observatory.php?page='.$link['url']),true);
+					echo 'http://localhost/simplex/observatory.php?page='.$link['url'];
+					var_dump($api);					
+						$dados['datetime'] = stringify_sql(date('Y-m-d H:00:00'));
+						$dados['url_id'] = $link['id'];
+						$dados['url'] = stringify_sql($link['url']);
+						$dados['score'] = intval($api['r1']['score']);
+						$dados['content_security_policy'] = intval($api['r5']['content-security-policy']['score_modifier']);
+						$dados['contribute'] = intval($api['r5']['contribute']['score_modifier']);
+						$dados['cookies'] = intval($api['r5']['cookies']['score-modifier']);
+						$dados['cross_origin_resource_sharing'] = intval($api['r5']['cross-origin-resource-sharing']['score_modifier']);
+						$dados['public_key_pinning'] = intval($api['r5']['public-key-pinning']['score_modifier']);
+						$dados['redirection'] = intval($api['r5']['redirection']['score_modifier']);
+						$dados['referrer_policy'] = intval($api['r5']['referrer-policy']['score_modifier']);
+						$dados['strict_transport_security'] = intval($api['r5']['strict-transport-security']['score_modifier']);
+						$dados['subresource_integrity'] = intval($api['r5']['subresource-integrity']['score_modifier']);
+						$dados['x_content_type_options'] = intval($api['r5']['x-content-type-options']['score_modifier']);
+						$dados['x_frame_options'] = intval($api['r5']['x_frame_options']['score_modifier']);
+						$dados['x_xss_protection'] = intval($api['r5']['x_xss_protection']['score_modifier']);
+						$dados['details'] = stringify_sql(addslashes(json_encode($api['r5'])));
+						$result = $model_generic->insert('observatory',$dados);
+						echo ($result == false ? "Link $url não atualizado!</br>" : "Link $url atualizado!</br>");	
+				}catch(Exception $e){
+					print_r($e);
+				}
+			}else{
+				echo "Já Coletado";
+			}
+			echo "</br></br>";				
 		}
 	}
 
 	// script @ok
 	public function robots($model,$request,$body){
+		date_default_timezone_set('America/Sao_Paulo');
 		$model_generic = new Model();
 		$links = $model->robots();
 		foreach($links as $link){
 			$valid_date = $model->valid_date_robots($link['id'])[0]['max(datetime)'];
 			if(is_null($valid_date)){
 				try{
-					$url = str_replace('//robots.txt', '/robots.txt', $link['url'].'/robots.txt');
+					$url = url_path($link['url']).'/robots.txt';
 					$response = crawlerPage($url);
 					$robots = $response['content'];
 					$robots_old = $model->robots_old($link['id'])[0]['rules'];
@@ -251,9 +281,10 @@ class CrawlerController{
 
 	// validando
 	public function seo_crawler($model,$request,$body){
+		date_default_timezone_set('America/Sao_Paulo');
 		$model_generic = new Model();
 		$links = $model->seo_crawler();
-		$manager = connect_mongo();
+		// $manager = connect_mongo();
 		foreach($links as $link){
 			$valid_date = $model->valid_date_seo_crawler($link['id']);
 			if($valid_date<1){
@@ -291,11 +322,11 @@ class CrawlerController{
 						$dados['type'] = stringify_sql($traffic_type,255);
 						// $dados['headers'] = stringify_sql(json_encode($headers),255);
 						$dados['headers'] = $response['header'];
-						$dados['html'] = stringify_sql(
-								json_encode(
-									insert_mongo($manager,'hibots01.html_reference',['font'=>'seo_crawler','html'=>$html,'traffic_type'=>$traffic_type,'url'=>$dados['url'],'url_id'=>$dados['url_id'],'created'=>date('Y-m-d h:m:s'),'updated'=>date('Y-m-d h:m:s')])
-								)
-								,255);
+						// $dados['html'] = stringify_sql(
+						// 		json_encode(
+						// 			insert_mongo($manager,'hibots01.html_reference',['font'=>'seo_crawler','html'=>$html,'traffic_type'=>$traffic_type,'url'=>$dados['url'],'url_id'=>$dados['url_id'],'created'=>date('Y-m-d h:m:s'),'updated'=>date('Y-m-d h:m:s')])
+						// 		)
+						// 		,255);
 						$dados['nhtml'] = strlen($html);
 						$dados['nh1'] = stable(substr_count($html,'h1'),$seo_old['nh1'],1.1);
 						$dados['nh2'] = stable(substr_count($html,'h2'),$seo_old['nh2'],1.1);
